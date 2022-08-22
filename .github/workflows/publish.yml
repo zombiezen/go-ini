@@ -13,4 +13,4 @@ jobs:
         run: >-
           nix-shell --pure
           --keep GITHUB_REF
-          --run 'go get -d zombiezen.com/go/log@"$(echo "$GITHUB_REF" | sed -e s:^refs/tags/:: )"'
+          --run 'go get -d zombiezen.com/go/ini@"$(echo "$GITHUB_REF" | sed -e s:^refs/tags/:: )"'
