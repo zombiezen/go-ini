@@ -33,7 +33,7 @@ type property struct {
 	value    string
 }
 
-// ParseOptions holds optional parameters for Parse.
+// ParseOptions holds optional parameters for [Parse].
 type ParseOptions struct {
 	// NormalizeSection is called on each section name to apply text transformations.
 	// This can be used to make keys case-insensitive, for instance.

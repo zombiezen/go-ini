@@ -12,7 +12,7 @@ import (
 // of precedence.
 type FileSet []*File
 
-// ParseFiles parses the files at the given paths as INI and returns a FileSet.
+// ParseFiles parses the files at the given paths as INI and returns a [FileSet].
 // If the returned error is nil, the returned file set's length will be the same
 // as the number of arguments. ParseFiles will stop on the first error, but
 // ignores missing file errors, instead filling the corresponding element of the
