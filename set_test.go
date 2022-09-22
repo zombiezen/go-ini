@@ -4,6 +4,7 @@
 package ini
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -32,44 +33,89 @@ func TestNilFileSet(t *testing.T) {
 
 func TestFileSetAccess(t *testing.T) {
 	tests := []struct {
-		name     string
-		sources  []string
-		section  string
-		key      string
-		wantGet  string
-		wantFind []string
+		name           string
+		sources        []string
+		section        string
+		key            string
+		wantGet        string
+		wantValue      *Value
+		wantFind       []string
+		wantFindValues []*Value
 	}{
 		{
-			name:     "ExistsInFirst",
-			sources:  []string{"FOO=bar\n", "BAZ=quux\n"},
-			section:  "",
-			key:      "FOO",
-			wantGet:  "bar",
+			name:    "ExistsInFirst",
+			sources: []string{"FOO=bar\n", "BAZ=quux\n"},
+			section: "",
+			key:     "FOO",
+			wantGet: "bar",
+			wantValue: &Value{
+				Value:    "bar",
+				Filename: "ExistsInFirst_0",
+				Line:     1,
+			},
 			wantFind: []string{"bar"},
+			wantFindValues: []*Value{
+				{
+					Value:    "bar",
+					Filename: "ExistsInFirst_0",
+					Line:     1,
+				},
+			},
 		},
 		{
-			name:     "ExistsInSecond",
-			sources:  []string{"FOO=bar\n", "BAZ=quux\n"},
-			section:  "",
-			key:      "BAZ",
-			wantGet:  "quux",
+			name:    "ExistsInSecond",
+			sources: []string{"FOO=bar\n", "BAZ=quux\n"},
+			section: "",
+			key:     "BAZ",
+			wantGet: "quux",
+			wantValue: &Value{
+				Value:    "quux",
+				Filename: "ExistsInSecond_1",
+				Line:     1,
+			},
 			wantFind: []string{"quux"},
+			wantFindValues: []*Value{
+				{
+					Value:    "quux",
+					Filename: "ExistsInSecond_1",
+					Line:     1,
+				},
+			},
 		},
 		{
-			name:     "DoesNotExist",
-			sources:  []string{"FOO=bar\n", "BAZ=quux\n"},
-			section:  "",
-			key:      "bork",
-			wantGet:  "",
-			wantFind: []string{},
+			name:           "DoesNotExist",
+			sources:        []string{"FOO=bar\n", "BAZ=quux\n"},
+			section:        "",
+			key:            "bork",
+			wantGet:        "",
+			wantValue:      nil,
+			wantFind:       []string{},
+			wantFindValues: nil,
 		},
 		{
-			name:     "MultipleValues",
-			sources:  []string{"FOO=bar\n", "FOO=baz\n"},
-			section:  "",
-			key:      "FOO",
-			wantGet:  "bar",
+			name:    "MultipleValues",
+			sources: []string{"FOO=bar\n", "FOO=baz\n"},
+			section: "",
+			key:     "FOO",
+			wantGet: "bar",
+			wantValue: &Value{
+				Value:    "bar",
+				Filename: "MultipleValues_0",
+				Line:     1,
+			},
 			wantFind: []string{"baz", "bar"},
+			wantFindValues: []*Value{
+				{
+					Value:    "baz",
+					Filename: "MultipleValues_1",
+					Line:     1,
+				},
+				{
+					Value:    "bar",
+					Filename: "MultipleValues_0",
+					Line:     1,
+				},
+			},
 		},
 		{
 			name: "Section",
@@ -81,18 +127,32 @@ func TestFileSetAccess(t *testing.T) {
 				"[foo]\n" +
 					"something=else\n",
 			},
-			section:  "foo",
-			key:      "bar",
-			wantGet:  "baz",
+			section: "foo",
+			key:     "bar",
+			wantGet: "baz",
+			wantValue: &Value{
+				Value:    "baz",
+				Filename: "Section_0",
+				Line:     2,
+			},
 			wantFind: []string{"baz"},
+			wantFindValues: []*Value{
+				{
+					Value:    "baz",
+					Filename: "Section_0",
+					Line:     2,
+				},
+			},
 		},
 	}
 	t.Run("Get", func(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				var fset FileSet
-				for _, src := range test.sources {
-					f, err := Parse(strings.NewReader(src), nil)
+				for i, src := range test.sources {
+					f, err := Parse(strings.NewReader(src), &ParseOptions{
+						Name: fmt.Sprintf("%s_%d", test.name, i),
+					})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -107,12 +167,34 @@ func TestFileSetAccess(t *testing.T) {
 			})
 		}
 	})
+	t.Run("Value", func(t *testing.T) {
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				var fset FileSet
+				for i, src := range test.sources {
+					f, err := Parse(strings.NewReader(src), &ParseOptions{
+						Name: fmt.Sprintf("%s_%d", test.name, i),
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					fset = append(fset, f)
+				}
+				got := fset.Value(test.section, test.key)
+				if diff := cmp.Diff(test.wantValue, got); diff != "" {
+					t.Errorf("fset.Value(%q, %q) (-want +got):\n%s", test.section, test.key, diff)
+				}
+			})
+		}
+	})
 	t.Run("Find", func(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				var fset FileSet
-				for _, src := range test.sources {
-					f, err := Parse(strings.NewReader(src), nil)
+				for i, src := range test.sources {
+					f, err := Parse(strings.NewReader(src), &ParseOptions{
+						Name: fmt.Sprintf("%s_%d", test.name, i),
+					})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -125,6 +207,26 @@ func TestFileSetAccess(t *testing.T) {
 				got = fset.Section(test.section)[test.key]
 				if diff := cmp.Diff(test.wantFind, got, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("fset.Section(%q)[%q] (-want +got):\n%s", test.section, test.key, diff)
+				}
+			})
+		}
+	})
+	t.Run("FindValues", func(t *testing.T) {
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				var fset FileSet
+				for i, src := range test.sources {
+					f, err := Parse(strings.NewReader(src), &ParseOptions{
+						Name: fmt.Sprintf("%s_%d", test.name, i),
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					fset = append(fset, f)
+				}
+				got := fset.FindValues(test.section, test.key)
+				if diff := cmp.Diff(test.wantFindValues, got, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("fset.FindValues(%q, %q) (-want +got):\n%s", test.section, test.key, diff)
 				}
 			})
 		}

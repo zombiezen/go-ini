@@ -17,6 +17,7 @@ import (
 // A File is a collection of properties. The zero value is an empty file.
 // Files can be read by multiple concurrent goroutines.
 type File struct {
+	name             string
 	sections         []section
 	trailingComments []string
 }
@@ -27,14 +28,30 @@ type section struct {
 	properties []property
 }
 
+// Value holds a single property value and its position information.
+type Value struct {
+	Value string
+
+	// Filename is the name passed to [Parse] via [ParseOptions.Name].
+	Filename string
+	// Line is the line number this value appears on within the file.
+	// It may be zero if the line number is unknown.
+	Line int
+}
+
 type property struct {
 	comments []string
 	key      string
 	value    string
+	lineno   int
 }
 
 // ParseOptions holds optional parameters for [Parse].
 type ParseOptions struct {
+	// Name is the name of the file being parsed.
+	// It is assumed to be a path, but may be any string.
+	Name string
+
 	// NormalizeSection is called on each section name to apply text transformations.
 	// This can be used to make keys case-insensitive, for instance.
 	// If nil, no transformations are made.
@@ -57,6 +74,9 @@ func Parse(r io.Reader, opts *ParseOptions) (*File, error) {
 		sections: []section{
 			{name: ""}, // Always start with the default section.
 		},
+	}
+	if opts != nil {
+		f.name = opts.Name
 	}
 	lineno := 1
 	var comments []string
@@ -95,6 +115,7 @@ func Parse(r io.Reader, opts *ParseOptions) (*File, error) {
 				comments: comments,
 				key:      key,
 				value:    unquote(line[i+1:]),
+				lineno:   lineno,
 			})
 			comments = nil
 		}
@@ -249,13 +270,16 @@ func fromHex(c byte) byte {
 // any section. If there are no values associated with the key, Get returns
 // the empty string.
 func (f *File) Get(section, key string) string {
-	v, _ := f.get(section, key)
-	return v
+	p := f.get(section, key)
+	if p == nil {
+		return ""
+	}
+	return p.value
 }
 
-func (f *File) get(section, key string) (_ string, ok bool) {
+func (f *File) get(section, key string) *property {
 	if f == nil {
-		return "", false
+		return nil
 	}
 	for i := len(f.sections) - 1; i >= 0; i-- {
 		currSection := &f.sections[i]
@@ -265,11 +289,31 @@ func (f *File) get(section, key string) (_ string, ok bool) {
 		for j := len(currSection.properties) - 1; j >= 0; j-- {
 			currProperty := &currSection.properties[j]
 			if currProperty.key == key {
-				return currProperty.value, true
+				return currProperty
 			}
 		}
 	}
-	return "", false
+	return nil
+}
+
+// Value returns the last value
+// associated with the given key in the given section.
+// Passing an empty section name searches for properties outside any section.
+// If there are no values associated with the key,
+// Value returns nil.
+func (f *File) Value(section, key string) *Value {
+	return f.makeValue(f.get(section, key))
+}
+
+func (f *File) makeValue(p *property) *Value {
+	if p == nil {
+		return nil
+	}
+	return &Value{
+		Value:    p.value,
+		Filename: f.name,
+		Line:     p.lineno,
+	}
 }
 
 // Find returns all the values associated with the given key in the given
@@ -287,6 +331,27 @@ func (f *File) Find(section, key string) []string {
 		for _, p := range s.properties {
 			if p.key == key {
 				values = append(values, p.value)
+			}
+		}
+	}
+	return values
+}
+
+// FindValues returns all the values
+// associated with the given key in the given section.
+// Passing an empty section name searches for properties outside any section.
+func (f *File) FindValues(section, key string) []*Value {
+	if f == nil {
+		return nil
+	}
+	var values []*Value
+	for _, s := range f.sections {
+		if s.name != section {
+			continue
+		}
+		for _, p := range s.properties {
+			if p.key == key {
+				values = append(values, f.makeValue(&p))
 			}
 		}
 	}
@@ -363,6 +428,7 @@ func (f *File) Set(sectionName, key, value string) {
 	}
 	var addToSection *section
 	wrote := false
+	changedLayout := false
 	for i := len(f.sections) - 1; i >= 0; i-- {
 		currSection := &f.sections[i]
 		if currSection.name != sectionName {
@@ -382,11 +448,15 @@ func (f *File) Set(sectionName, key, value string) {
 				// Zero out truncated element for garbage collection.
 				currSection.properties[len(currSection.properties)-1] = property{}
 				currSection.properties = currSection.properties[:len(currSection.properties)-1]
+				changedLayout = true
 			} else {
 				prop.value = value
 				wrote = true
 			}
 		}
+	}
+	if changedLayout || !wrote {
+		f.clearLineNumbers()
 	}
 	if wrote {
 		return
@@ -415,6 +485,7 @@ func (f *File) Set(sectionName, key, value string) {
 // become empty, then those sections will be removed.
 func (f *File) Delete(sectionName, key string) {
 	sectionCount := 0
+	modified := false
 	for i := range f.sections {
 		s := &f.sections[i]
 		if s.name != sectionName {
@@ -431,6 +502,9 @@ func (f *File) Delete(sectionName, key string) {
 				propertyCount++
 			}
 		}
+		if propertyCount != len(s.properties) {
+			modified = true
+		}
 		for j := propertyCount; j < len(s.properties); j++ {
 			// Zero out for garbage collection.
 			s.properties[j] = property{}
@@ -444,11 +518,17 @@ func (f *File) Delete(sectionName, key string) {
 			sectionCount++
 		}
 	}
+	if sectionCount != len(f.sections) {
+		modified = true
+	}
 	for i := sectionCount; i < len(f.sections); i++ {
 		// Zero out for garbage collection.
 		f.sections[i] = section{}
 	}
 	f.sections = f.sections[:sectionCount]
+	if modified {
+		f.clearLineNumbers()
+	}
 }
 
 // Add appends properties with the given key under the given section. If the
@@ -466,6 +546,7 @@ func (f *File) Add(sectionName, key string, values []string) {
 	if len(values) == 0 {
 		return
 	}
+	f.clearLineNumbers()
 	var addToSection *section
 	for i := len(f.sections) - 1; i >= 0; i-- {
 		currSection := &f.sections[i]
@@ -492,6 +573,14 @@ func (f *File) Add(sectionName, key string, values []string) {
 			key:   key,
 			value: value,
 		})
+	}
+}
+
+func (f *File) clearLineNumbers() {
+	for _, s := range f.sections {
+		for i := range s.properties {
+			s.properties[i].lineno = 0
+		}
 	}
 }
 

@@ -8,8 +8,8 @@ import (
 	"os"
 )
 
-// FileSet is a list of files to obtain configuration from in descending order
-// of precedence.
+// FileSet is a list of files to obtain configuration from
+// in descending order of precedence.
 type FileSet []*File
 
 // ParseFiles parses the files at the given paths as INI and returns a [FileSet].
@@ -44,11 +44,24 @@ func ParseFiles(opts *ParseOptions, paths ...string) (FileSet, error) {
 // the empty string.
 func (fset FileSet) Get(section, key string) string {
 	for _, f := range fset {
-		if v, ok := f.get(section, key); ok {
-			return v
+		if p := f.get(section, key); p != nil {
+			return p.value
 		}
 	}
 	return ""
+}
+
+// Value returns the last value
+// associated with the given key in the given section.
+// Passing an empty section name searches for properties outside any section.
+// If there are no values associated with the key, Value returns nil.
+func (fset FileSet) Value(section, key string) *Value {
+	for _, f := range fset {
+		if v := f.Value(section, key); v != nil {
+			return v
+		}
+	}
+	return nil
 }
 
 // Find returns all the values associated with the given key in the given
@@ -58,6 +71,17 @@ func (fset FileSet) Find(section, key string) []string {
 	var values []string
 	for i := len(fset) - 1; i >= 0; i-- {
 		values = append(values, fset[i].Find(section, key)...)
+	}
+	return values
+}
+
+// FindValues returns all the values
+// associated with the given key in the given section.
+// Passing an empty section name searches for properties outside any section.
+func (fset FileSet) FindValues(section, key string) []*Value {
+	var values []*Value
+	for i := len(fset) - 1; i >= 0; i-- {
+		values = append(values, fset[i].FindValues(section, key)...)
 	}
 	return values
 }

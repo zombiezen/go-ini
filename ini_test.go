@@ -448,44 +448,89 @@ func TestParse(t *testing.T) {
 
 func TestAccess(t *testing.T) {
 	tests := []struct {
-		name     string
-		source   string
-		section  string
-		key      string
-		wantGet  string
-		wantFind []string
+		name           string
+		source         string
+		section        string
+		key            string
+		wantGet        string
+		wantValue      *Value
+		wantFind       []string
+		wantFindValues []*Value
 	}{
 		{
-			name:     "Global",
-			source:   "FOO=bar\n",
-			section:  "",
-			key:      "FOO",
-			wantGet:  "bar",
+			name:    "Global",
+			source:  "FOO=bar\n",
+			section: "",
+			key:     "FOO",
+			wantGet: "bar",
+			wantValue: &Value{
+				Value:    "bar",
+				Filename: "Global",
+				Line:     1,
+			},
 			wantFind: []string{"bar"},
+			wantFindValues: []*Value{
+				{
+					Value:    "bar",
+					Filename: "Global",
+					Line:     1,
+				},
+			},
 		},
 		{
-			name:     "GlobalDoesNotExist",
-			source:   "FOO=bar\n",
-			section:  "",
-			key:      "xyzzy",
-			wantGet:  "",
-			wantFind: []string{},
+			name:           "GlobalDoesNotExist",
+			source:         "FOO=bar\n",
+			section:        "",
+			key:            "xyzzy",
+			wantGet:        "",
+			wantValue:      nil,
+			wantFind:       []string{},
+			wantFindValues: nil,
 		},
 		{
-			name:     "MultipleValues",
-			source:   "FOO=bar\nFOO=baz\n",
-			section:  "",
-			key:      "FOO",
-			wantGet:  "baz",
+			name:    "MultipleValues",
+			source:  "FOO=bar\nFOO=baz\n",
+			section: "",
+			key:     "FOO",
+			wantGet: "baz",
+			wantValue: &Value{
+				Value:    "baz",
+				Filename: "MultipleValues",
+				Line:     2,
+			},
 			wantFind: []string{"bar", "baz"},
+			wantFindValues: []*Value{
+				{
+					Value:    "bar",
+					Filename: "MultipleValues",
+					Line:     1,
+				},
+				{
+					Value:    "baz",
+					Filename: "MultipleValues",
+					Line:     2,
+				},
+			},
 		},
 		{
-			name:     "Section",
-			source:   "[foo]\nbar=baz\n",
-			section:  "foo",
-			key:      "bar",
-			wantGet:  "baz",
+			name:    "Section",
+			source:  "[foo]\nbar=baz\n",
+			section: "foo",
+			key:     "bar",
+			wantGet: "baz",
+			wantValue: &Value{
+				Value:    "baz",
+				Filename: "Section",
+				Line:     2,
+			},
 			wantFind: []string{"baz"},
+			wantFindValues: []*Value{
+				{
+					Value:    "baz",
+					Filename: "Section",
+					Line:     2,
+				},
+			},
 		},
 		{
 			name: "FirstSection",
@@ -495,16 +540,30 @@ func TestAccess(t *testing.T) {
 				"bork=bork\n" +
 				"[foo]\n" +
 				"something=else\n",
-			section:  "foo",
-			key:      "bar",
-			wantGet:  "baz",
+			section: "foo",
+			key:     "bar",
+			wantGet: "baz",
+			wantValue: &Value{
+				Value:    "baz",
+				Filename: "FirstSection",
+				Line:     2,
+			},
 			wantFind: []string{"baz"},
+			wantFindValues: []*Value{
+				{
+					Value:    "baz",
+					Filename: "FirstSection",
+					Line:     2,
+				},
+			},
 		},
 	}
 	t.Run("Get", func(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				f, err := Parse(strings.NewReader(test.source), nil)
+				f, err := Parse(strings.NewReader(test.source), &ParseOptions{
+					Name: test.name,
+				})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -517,10 +576,28 @@ func TestAccess(t *testing.T) {
 			})
 		}
 	})
+	t.Run("Value", func(t *testing.T) {
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				f, err := Parse(strings.NewReader(test.source), &ParseOptions{
+					Name: test.name,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := f.Value(test.section, test.key)
+				if diff := cmp.Diff(test.wantValue, got); diff != "" {
+					t.Errorf("f.Value(%q, %q) (-want +got):\n%s", test.section, test.key, diff)
+				}
+			})
+		}
+	})
 	t.Run("Find", func(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				f, err := Parse(strings.NewReader(test.source), nil)
+				f, err := Parse(strings.NewReader(test.source), &ParseOptions{
+					Name: test.name,
+				})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -531,6 +608,22 @@ func TestAccess(t *testing.T) {
 				got = f.Section(test.section)[test.key]
 				if diff := cmp.Diff(test.wantFind, got, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("f.Section(%q)[%q] (-want +got):\n%s", test.section, test.key, diff)
+				}
+			})
+		}
+	})
+	t.Run("FindValues", func(t *testing.T) {
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				f, err := Parse(strings.NewReader(test.source), &ParseOptions{
+					Name: test.name,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := f.FindValues(test.section, test.key)
+				if diff := cmp.Diff(test.wantFindValues, got, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("f.FindValues(%q, %q) (-want +got):\n%s", test.section, test.key, diff)
 				}
 			})
 		}
