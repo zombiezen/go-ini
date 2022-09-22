@@ -78,12 +78,16 @@ func Parse(r io.Reader, opts *ParseOptions) (*File, error) {
 	if opts != nil {
 		f.name = opts.Name
 	}
+	errPrefix := "parse ini file"
+	if f.name != "" {
+		errPrefix = fmt.Sprintf("%s %q", errPrefix, f.name)
+	}
 	lineno := 1
 	var comments []string
 	for ; s.Scan(); lineno++ {
 		line, err := cleanLine(s.Bytes())
 		if err != nil {
-			return f, fmt.Errorf("parse ini file: line %d: %w", lineno, err)
+			return f, fmt.Errorf("%s: line %d: %w", errPrefix, lineno, err)
 		}
 		if line == "" {
 			continue
@@ -106,7 +110,7 @@ func Parse(r io.Reader, opts *ParseOptions) (*File, error) {
 			i := strings.IndexByte(line, '=')
 			key := line[:i]
 			if !IsValidKey(key) {
-				return f, fmt.Errorf("parse ini file: line %d: invalid key %q", lineno, key)
+				return f, fmt.Errorf("%s: line %d: invalid key %q", errPrefix, lineno, key)
 			}
 			if opts != nil && opts.NormalizeKey != nil {
 				key = opts.NormalizeKey(currSection.name, key)
@@ -121,7 +125,7 @@ func Parse(r io.Reader, opts *ParseOptions) (*File, error) {
 		}
 	}
 	if err := s.Err(); err != nil {
-		return f, fmt.Errorf("parse ini file: line %d: %w", lineno, err)
+		return f, fmt.Errorf("%s: line %d: %w", errPrefix, lineno, err)
 	}
 	f.trailingComments = comments
 	return f, nil

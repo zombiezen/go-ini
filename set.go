@@ -17,8 +17,15 @@ type FileSet []*File
 // as the number of arguments. ParseFiles will stop on the first error, but
 // ignores missing file errors, instead filling the corresponding element of the
 // set with a nil *File.
+//
+// If given, [ParseOptions.Name] is ignored.
+// The file's path (as given to ParseFiles) is always used as the name.
 func ParseFiles(opts *ParseOptions, paths ...string) (FileSet, error) {
 	fset := make(FileSet, 0, len(paths))
+	var optsCopy ParseOptions
+	if opts != nil {
+		optsCopy = *opts
+	}
 	for _, p := range paths {
 		f, err := os.Open(p)
 		if os.IsNotExist(err) {
@@ -28,10 +35,11 @@ func ParseFiles(opts *ParseOptions, paths ...string) (FileSet, error) {
 		if err != nil {
 			return fset, fmt.Errorf("parse ini files: %w", err)
 		}
-		parsed, err := Parse(f, opts)
+		optsCopy.Name = p
+		parsed, err := Parse(f, &optsCopy)
 		f.Close() // Close errors irrelevant.
 		if err != nil {
-			return fset, fmt.Errorf("parse ini files: %s: %w", p, err)
+			return fset, fmt.Errorf("parse ini files: %w", err)
 		}
 		fset = append(fset, parsed)
 	}
